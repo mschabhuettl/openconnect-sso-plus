@@ -183,6 +183,7 @@ class AuthRequestResponse:
 
 
 def parse_auth_complete_response(xml):
+    assert hasattr(xml, "auth")
     assert xml.auth.get("id") == "success"
     resp = AuthCompleteResponse(
         auth_id=xml.auth.get("id"),
