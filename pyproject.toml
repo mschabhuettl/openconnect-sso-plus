@@ -47,7 +47,7 @@ pytest-cov = "^4.0"
 pytest-httpserver = "^1.0"
 
 [tool.black]
-target-version = ['py36', 'py37', 'py38']
+target-version = ['py36', 'py37', 'py38', 'py39', 'py310', 'py311']
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
