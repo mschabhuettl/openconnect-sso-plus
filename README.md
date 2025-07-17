@@ -3,15 +3,16 @@
 Wrapper script for OpenConnect supporting Azure AD (SAMLv2) authentication
 to Cisco SSL-VPNs
 
-[![Tests Status
-](https://github.com/vlaci/openconnect-sso/workflows/Tests/badge.svg?branch=master&event=push)](https://github.com/vlaci/openconnect-sso/actions?query=workflow%3ATests+branch%3Amaster+event%3Apush)
+[![Tests Status](https://github.com/mschabhuettl/openconnect-sso-plus/workflows/Tests/badge.svg?branch=main&event=push)](https://github.com/mschabhuettl/openconnect-sso-plus/actions?query=workflow%3ATests+branch%3Amain+event%3Apush)
+
+This repository is a fork of [vlaci/openconnect-sso](https://github.com/vlaci/openconnect-sso) with additional improvements.
 
 ## Installation
 
 ### Using pip/pipx
 
 A generic way that works on most 'standard' Linux distributions out of the box.
-The following example shows how to install `openconect-sso` along with its
+The following example shows how to install `openconnect-sso` along with its
 dependencies including Qt:
 
 ```shell
@@ -55,8 +56,8 @@ yay -S openconnect-sso
 The easiest method to try is by installing directly:
 
 ```shell
-$ nix-env -i -f https://github.com/vlaci/openconnect-sso/archive/master.tar.gz
-unpacking 'https://github.com/vlaci/openconnect-sso/archive/master.tar.gz'...
+$ nix-env -i -f https://github.com/mschabhuettl/openconnect-sso-plus/archive/main.tar.gz
+unpacking 'https://github.com/mschabhuettl/openconnect-sso-plus/archive/main.tar.gz'...
 [...]
 installing 'openconnect-sso-0.4.0'
 these derivations will be built:
@@ -71,7 +72,7 @@ An overlay is also available to use in nix expressions:
 
 ``` nix
 let
-  openconnectOverlay = import "${builtins.fetchTarball https://github.com/vlaci/openconnect-sso/archive/master.tar.gz}/overlay.nix";
+  openconnectOverlay = import "${builtins.fetchTarball https://github.com/mschabhuettl/openconnect-sso-plus/archive/main.tar.gz}/overlay.nix";
   pkgs = import <nixpkgs> { overlays = [ openconnectOverlay ]; };
 in
   #  pkgs.openconnect-sso is available in this context
@@ -84,7 +85,7 @@ in
 
 {
   nixpkgs.overlays = [
-    (import "${builtins.fetchTarball https://github.com/vlaci/openconnect-sso/archive/master.tar.gz}/overlay.nix")
+    (import "${builtins.fetchTarball https://github.com/mschabhuettl/openconnect-sso-plus/archive/main.tar.gz}/overlay.nix")
   ];
 }
 ```
