@@ -1,13 +1,43 @@
 import socket
+import ssl
+
 import attr
 import requests
 import structlog
+import urllib3
 from lxml import etree, objectify
+from requests import adapters
 
 from openconnect_sso.saml_authenticator import authenticate_in_browser
 
-
 logger = structlog.get_logger()
+
+
+class CustomHttpAdapter(requests.adapters.HTTPAdapter):
+    """
+    "Transport adapter" that allows us to use custom ssl_context.
+    Source: https://stackoverflow.com/questions/71603314/ssl-error-unsafe-legacy-renegotiation-disabled
+    """
+
+    def __init__(self, ssl_context=None, **kwargs):
+        self.ssl_context = ssl_context
+        super().__init__(**kwargs)
+
+    def init_poolmanager(self, connections, maxsize, block=False):
+        self.poolmanager = urllib3.poolmanager.PoolManager(
+            num_pools=connections,
+            maxsize=maxsize,
+            block=block,
+            ssl_context=self.ssl_context,
+        )
+
+
+def get_legacy_session():
+    ctx = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+    ctx.options |= 0x4  # OP_LEGACY_SERVER_CONNECT
+    session = requests.Session()
+    session.mount("https://", CustomHttpAdapter(ctx))
+    return session
 
 
 class Authenticator:
@@ -22,6 +52,10 @@ class Authenticator:
         self._detect_authentication_target_url()
 
         response = self._start_authentication()
+
+        if isinstance(response, CertRequestResponse):
+            response = self._start_authentication(no_cert=True)
+
         if not isinstance(response, AuthRequestResponse):
             logger.error(
                 "Could not start authentication. Invalid response type in current state",
@@ -53,16 +87,21 @@ class Authenticator:
 
         return response
 
-    def _detect_authentication_target_url(self):
-        # Follow possible redirects in a GET request
-        # Authentication will occur using a POST request on the final URL
-        response = requests.get(self.host.vpn_url)
+def _detect_authentication_target_url(self):
+    # Follow possible redirects in a GET request
+    # Authentication will occur using a POST request on the final URL
+    try:
+        response = get_legacy_session().get(self.host.vpn_url)
         response.raise_for_status()
         self.host.address = response.url
-        logger.debug("Auth target url", url=self.host.vpn_url)
+    except Exception:
+        logger.warn("Failed to check for redirect")
+        self.host.address = self.host.vpn_url
 
-    def _start_authentication(self):
-        request = _create_auth_init_request(self.host, self.host.vpn_url, self.version)
+    logger.debug("Auth target url", url=self.host.vpn_url)
+
+    def _start_authentication(self, no_cert=False):
+        request = _create_auth_init_request(self.host, self.host.vpn_url, self.version, no_cert)
         logger.debug("Sending auth init request", content=request)
         response = self.session.post(self.host.vpn_url, request)
         logger.debug("Auth init response received", content=response.content)
@@ -91,8 +130,33 @@ class AuthResponseError(AuthenticationError):
     pass
 
 
+class AllowLegacyRenegotionAdapter(adapters.HTTPAdapter):
+    """“Transport adapter” that allows us to use legacy renogation.
+
+    Such renegotiation is disabled by default in OpenSSL 3.0. This
+    suppresses errors such as:
+
+      SSLError(1, '[SSL: UNSAFE_LEGACY_RENEGOTIATION_DISABLED] unsafe
+      legacy renegotiation disabled (_ssl.c:992)')
+
+    """
+
+    def init_poolmanager(self, connections, maxsize, block=False):
+        ctx = urllib3.util.ssl_.create_urllib3_context()
+        ctx.load_default_certs()
+        ctx.options |= 0x4  # ssl.OP_LEGACY_SERVER_CONNECT
+
+        self.poolmanager = urllib3.PoolManager(
+            ssl_context=ctx,
+            num_pools=connections,
+            maxsize=maxsize,
+            block=block,
+        )
+
+
 def create_http_session(proxy, version):
     session = requests.Session()
+    session.mount("https://", AllowLegacyRenegotionAdapter())
     session.proxies = {"http": proxy, "https": proxy}
     session.headers.update(
         {
@@ -103,7 +167,6 @@ def create_http_session(proxy, version):
             "X-Aggregate-Auth": "1",
             "X-Support-HTTP-Auth": "true",
             "Content-Type": "application/x-www-form-urlencoded",
-            # I know, it is invalid but that’s what Anyconnect sends
         }
     )
     return session
@@ -112,7 +175,7 @@ def create_http_session(proxy, version):
 E = objectify.ElementMaker(annotate=False)
 
 
-def _create_auth_init_request(host, url, version):
+def _create_auth_init_request(host, url, version, no_cert=False):
     ConfigAuth = getattr(E, "config-auth")
     Version = E.version
     DeviceId = getattr(E, "device-id")
@@ -120,6 +183,7 @@ def _create_auth_init_request(host, url, version):
     GroupAccess = getattr(E, "group-access")
     Capabilities = E.capabilities
     AuthMethod = getattr(E, "auth-method")
+    ClientCertFail = getattr(E, "client-cert-fail")
 
     root = ConfigAuth(
         {"client": "vpn", "type": "init", "aggregate-auth-version": "2"},
@@ -129,6 +193,9 @@ def _create_auth_init_request(host, url, version):
         GroupAccess(url),
         Capabilities(AuthMethod("single-sign-on-v2")),
     )
+    if no_cert:
+        root.append(ClientCertFail())
+
     return etree.tostring(
         root, pretty_print=True, xml_declaration=True, encoding="UTF-8"
     )
@@ -145,13 +212,17 @@ def parse_response(resp):
 
 
 def parse_auth_request_response(xml):
+    if hasattr(xml, 'client-cert-request'):
+        logger.info("client-cert-request received")
+        return CertRequestResponse()
+
     assert xml.auth.get("id") == "main"
 
     try:
         resp = AuthRequestResponse(
             auth_id=xml.auth.get("id"),
             auth_title=getattr(xml.auth, "title", ""),
-            auth_message=xml.auth.message,
+            auth_message=getattr(xml.auth, "message", ""),
             auth_error=getattr(xml.auth, "error", ""),
             opaque=xml.opaque,
             login_url=xml.auth["sso-v2-login"],
@@ -159,7 +230,7 @@ def parse_auth_request_response(xml):
             token_cookie_name=xml.auth["sso-v2-token-cookie-name"],
         )
     except AttributeError as exc:
-        raise AuthResponseError(exc)
+        raise AuthResponseError(exc) from exc
 
     logger.info(
         "Response received",
@@ -182,12 +253,22 @@ class AuthRequestResponse:
     opaque = attr.ib()
 
 
+@attr.s
+class CertRequestResponse:
+    pass
+
+
 def parse_auth_complete_response(xml):
     assert hasattr(xml, "auth")
     assert xml.auth.get("id") == "success"
+    if xml.auth.banner is not None:
+        auth_message = xml.auth.banner.text
+    else:
+        auth_message = getattr(xml.auth, "message", "")
+        
     resp = AuthCompleteResponse(
         auth_id=xml.auth.get("id"),
-        auth_message=xml.auth.message,
+        auth_message=auth_message,
         session_token=xml["session-token"],
         server_cert_hash=xml.config["vpn-base-config"]["server-cert-hash"],
     )

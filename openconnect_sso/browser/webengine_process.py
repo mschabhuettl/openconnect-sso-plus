@@ -1,5 +1,4 @@
 import asyncio
-import importlib.resources
 import json
 import multiprocessing
 import signal
@@ -7,19 +6,30 @@ import sys
 from urllib.parse import urlparse
 
 import attr
+# Prefer importlib.resources, fallback to backport for Python <3.8
+try:
+    import importlib.resources as importlib_resources
+except ModuleNotFoundError:
+    import importlib_resources
 import structlog
+import html as html_utils
 
-from PyQt6.QtCore import QUrl, QTimer, pyqtSlot, Qt
+from PyQt6.QtCore import Qt, QTimer, QUrl, pyqtSlot, QLocale
 from PyQt6.QtNetwork import QNetworkCookie, QNetworkProxy
-from PyQt6.QtWebEngineCore import QWebEngineScript, QWebEngineProfile, QWebEnginePage
+from PyQt6.QtWebEngineCore import (
+    QWebEnginePage,
+    QWebEngineProfile,
+    QWebEngineScript,
+    QWebEngineClientCertificateSelection,
+    QWebEngineWebAuthUxRequest,
+)
 from PyQt6.QtWebEngineWidgets import QWebEngineView
-from PyQt6.QtWidgets import QApplication, QWidget, QSizePolicy, QVBoxLayout
+from PyQt6.QtWidgets import QApplication, QSizePolicy, QVBoxLayout, QWidget
 
 from openconnect_sso import config
-
+from .webauthdialog import WebAuthUXDialog
 
 app = None
-profile = None
 logger = structlog.get_logger("webengine")
 
 
@@ -69,7 +79,6 @@ class Process(multiprocessing.Process):
     def run(self):
         # To work around funky GC conflicts with C++ code by ensuring QApplication terminates last
         global app
-        global profile
 
         signal.signal(signal.SIGTERM, on_sigterm)
         signal.signal(signal.SIGINT, signal.SIG_DFL)
@@ -80,7 +89,9 @@ class Process(multiprocessing.Process):
         if self.display_mode == config.DisplayMode.HIDDEN:
             argv += ["-platform", "minimal"]
         app = QApplication(argv)
-        profile = QWebEngineProfile("openconnect-sso")
+
+        language = QLocale.system().name().split("_")[0]
+        profile.setHttpAcceptLanguage(language)
 
         if self.proxy:
             parsed = urlparse(self.proxy)
@@ -102,7 +113,7 @@ class Process(multiprocessing.Process):
             pass
 
         force_python_execution.timeout.connect(ignore)
-        web = WebBrowser(cfg.auto_fill_rules, self._states.put, profile)
+        web = WebBrowser(cfg.auto_fill_rules, self._states.put)
 
         startup_info = self._commands.get()
         logger.info("Browser started", startup_info=startup_info)
@@ -124,7 +135,6 @@ class Process(multiprocessing.Process):
 
 
 def on_sigterm(signum, frame):
-    global profile
     logger.info("Terminate requested.")
     # Force flush cookieStore to disk. Without this hack the cookieStore may
     # not be synced at all if the browser lives only for a short amount of
@@ -133,7 +143,7 @@ def on_sigterm(signum, frame):
 
     # See: https://github.com/qutebrowser/qutebrowser/commit/8d55d093f29008b268569cdec28b700a8c42d761
     cookie = QNetworkCookie()
-    profile.cookieStore().deleteCookie(cookie)
+    QWebEngineProfile.defaultProfile().cookieStore().deleteCookie(cookie)
 
     # Give some time to actually save cookies
     exit_timer = QTimer(app)
@@ -142,15 +152,15 @@ def on_sigterm(signum, frame):
 
 
 class WebBrowser(QWebEngineView):
-    def __init__(self, auto_fill_rules, on_update, profile):
+    def __init__(self, auto_fill_rules, on_update):
         super().__init__()
         self._on_update = on_update
         self._auto_fill_rules = auto_fill_rules
-        page = QWebEnginePage(profile, self)
-        self.setPage(page)
         cookie_store = self.page().profile().cookieStore()
         cookie_store.cookieAdded.connect(self._on_cookie_added)
         self.page().loadFinished.connect(self._on_load_finished)
+        self.page().selectClientCertificate.connect(self._on_select_client_certificate)
+        self.page().webAuthUxRequested.connect(self._on_webauth_requested)
 
     def createWindow(self, type):
         if type == QWebEnginePage.WebDialog:
@@ -158,8 +168,11 @@ class WebBrowser(QWebEngineView):
             return self._popupWindow.view()
 
     def authenticate_at(self, url, credentials):
-        script_source = importlib.resources.read_text(
-            "openconnect_sso.browser", "user.js"
+        script_source = (
+            importlib_resources.files(".".join(__name__.split(".")[:-1]))
+            .joinpath("user.js")
+            .read_bytes()
+            .decode()
         )
         script = QWebEngineScript()
         script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
@@ -181,7 +194,7 @@ class WebBrowser(QWebEngineView):
 
 function autoFill() {{
     {get_selectors(rules, credentials)}
-    setTimeout(autoFill, 1000);
+    setTimeout(autoFill, 1588);
 }}
 autoFill();
 """
@@ -199,7 +212,40 @@ autoFill();
         logger.debug("Page loaded", url=url)
 
         self._on_update(Url(url))
+    def _on_select_client_certificate(self, selection):
+        logger.info("Select first client Certificate")
+        url = self.page().url().toString()
+        certificate = selection.certificates()[0]
+        text = ('<b>Subject:</b> {subj}<br/>'
+                '<b>Issuer:</b> {issuer}<br/>'
+                '<b>Serial:</b> {serial}'.format(
+                    subj=html_utils.escape(certificate.subjectDisplayName()),
+                    issuer=html_utils.escape(certificate.issuerDisplayName()),
+                    serial=bytes(certificate.serialNumber()).decode('ascii')))
+        if len(selection.certificates()) > 1:
+            text += ('<br/><br/><b>Note:</b> Multiple matching certificates '
+                     'were found, but certificate selection is not '
+                     'implemented yet!')
+        logger.info(text)
+        selection.select(certificate)
+        self.load(QUrl(url))
 
+    def _on_webauth_requested(self, request):
+        logger.debug("WebAuth UX requested")
+        self.webAuth = WebAuthUXDialog(self, request)
+        self.webAuth.setModal(False)
+        self.webAuth.setWindowFlags(self.webAuth.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+        request.stateChanged.connect(self._on_webauth_statechanged)
+        self.webAuth.show()
+
+    @pyqtSlot('QWebEngineWebAuthUxRequest::WebAuthUxState')
+    def _on_webauth_statechanged(self, state):
+        if state == QWebEngineWebAuthUxRequest.WebAuthUxState.Completed or state == QWebEngineWebAuthUxRequest.WebAuthUxState.Cancelled:
+            if self.webAuth is not None:
+                self.webAuth.close()
+                self.webAuth = None
+        else:
+            self.webAuth.updateDisplay()
 
 class WebPopupWindow(QWidget):
     def __init__(self, profile):
@@ -248,7 +294,8 @@ def get_selectors(rules, credentials):
             value = json.dumps(getattr(credentials, rule.fill, None))
             if value:
                 statements.append(
-                    f"""var elem = document.querySelector({selector}); if (elem) {{ elem.dispatchEvent(new Event("focus")); elem.value = {value}; elem.dispatchEvent(new Event("blur")); }}"""
+                    #f"""var elem = document.querySelector({selector}); if (elem) {{ elem.dispatchEvent(new Event("focus")); elem.value = {value}; elem.dispatchEvent(new Event("blur")); }}"""
+                    f"""var elem = document.querySelector({selector}); if (elem) {{ elem.dispatchEvent(new Event("focus")); elem.value = {value}; elem.dispatchEvent(new Event('input', {{bubbles: true}})); /*elem.dispatchEvent(new Event("blur"));*/ }}"""
                 )
             else:
                 logger.warning(
@@ -256,8 +303,10 @@ def get_selectors(rules, credentials):
                     type=rule.fill,
                     possibilities=dir(credentials),
                 )
+
         elif rule.action == "click":
             statements.append(
-                f"""var elem = document.querySelector({selector}); if (elem) {{ elem.dispatchEvent(new Event("focus")); elem.click(); }}"""
+                #f"""var elem = document.querySelector({selector}); if (elem) {{ elem.dispatchEvent(new Event("focus")); elem.click(); }}"""
+                f"""var elem = document.querySelector({selector}); if (elem) {{ var click_delay=728; elem.dispatchEvent(new Event("focus")); setTimeout(function() {{ document.querySelector({selector}).click(); }}, click_delay); }}"""
             )
     return "\n".join(statements)
