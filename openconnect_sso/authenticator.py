@@ -1,3 +1,4 @@
+import socket
 import ssl
 
 import attr
@@ -5,12 +6,9 @@ import requests
 import structlog
 import urllib3
 from lxml import etree, objectify
-import ssl
 from requests import adapters
-import urllib3
 
 from openconnect_sso.saml_authenticator import authenticate_in_browser
-
 
 logger = structlog.get_logger()
 
@@ -261,6 +259,7 @@ class CertRequestResponse:
 
 
 def parse_auth_complete_response(xml):
+    assert hasattr(xml, "auth")
     assert xml.auth.get("id") == "success"
     if xml.auth.banner is not None:
         auth_message = xml.auth.banner.text
@@ -286,6 +285,8 @@ class AuthCompleteResponse:
 
 
 def _create_auth_finish_request(host, auth_info, sso_token, version):
+    hostname = socket.gethostname()
+
     ConfigAuth = getattr(E, "config-auth")
     Version = E.version
     DeviceId = getattr(E, "device-id")
@@ -297,7 +298,7 @@ def _create_auth_finish_request(host, auth_info, sso_token, version):
     root = ConfigAuth(
         {"client": "vpn", "type": "auth-reply", "aggregate-auth-version": "2"},
         Version({"who": "vpn"}, version),
-        DeviceId("linux-64"),
+        DeviceId({"computer-name": hostname}, "linux-64"),
         SessionToken(),
         SessionId(),
         auth_info.opaque,

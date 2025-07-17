@@ -6,13 +6,11 @@ import sys
 from urllib.parse import urlparse
 
 import attr
-
 # Prefer importlib.resources, fallback to backport for Python <3.8
 try:
     import importlib.resources as importlib_resources
 except ModuleNotFoundError:
     import importlib_resources
-
 import structlog
 import html as html_utils
 
