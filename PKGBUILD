@@ -13,17 +13,11 @@ depends=('python' 'python-pyqt6' 'python-pyqt6-webengine' 'python-attrs' 'python
 makedepends=('python-setuptools')
 checkdepends=('python-pytest' 'python-pytest-asyncio')
 optdepends=()
-source=("https://github.com/mschabhuettl/openconnect-sso-plus/releases/download/v$pkgver/$pkgname-$pkgver.tar.gz"
-        'relax-pyxdg-version-constraints.patch'
-        'relax-keyring-version-constraints.patch')
-sha256sums=('SKIP'
-            '820cc200d62db90446f9102ddce2c2b166b5cc487e6ba0490ec3f62ad762bb31'
-            '1a06f5ae5ba7e8204b2b975402f080e7e04364a2cf102d9c6e172a16f268f0ab')
+source=("https://github.com/username/repo-name/archive/refs/heads/main.tar.gz")
+sha256sums=('SKIP')
 
 prepare() {
   cd "$pkgname-$pkgver"
-  patch --forward --strip=1 --input="${srcdir}/relax-pyxdg-version-constraints.patch"
-  patch --forward --strip=1 --input="${srcdir}/relax-keyring-version-constraints.patch"
 }
 
 build() {
