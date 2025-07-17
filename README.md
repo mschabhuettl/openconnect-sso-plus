@@ -1,17 +1,18 @@
-# openconnect-sso
+# openconnect-sso-plus
 
 Wrapper script for OpenConnect supporting Azure AD (SAMLv2) authentication
 to Cisco SSL-VPNs
 
-[![Tests Status
-](https://github.com/vlaci/openconnect-sso/workflows/Tests/badge.svg?branch=master&event=push)](https://github.com/vlaci/openconnect-sso/actions?query=workflow%3ATests+branch%3Amaster+event%3Apush)
+[![Tests Status](https://github.com/mschabhuettl/openconnect-sso-plus/workflows/Tests/badge.svg?branch=main&event=push)](https://github.com/mschabhuettl/openconnect-sso-plus/actions?query=workflow%3ATests+branch%3Amain+event%3Apush)
+
+This repository is a fork of [vlaci/openconnect-sso](https://github.com/vlaci/openconnect-sso) with additional improvements.
 
 ## Installation
 
 ### Using pip/pipx
 
 A generic way that works on most 'standard' Linux distributions out of the box.
-The following example shows how to install `openconect-sso` along with its
+The following example shows how to install `openconnect-sso-plus` along with its
 dependencies including Qt:
 
 ```shell
@@ -55,8 +56,8 @@ yay -S openconnect-sso
 The easiest method to try is by installing directly:
 
 ```shell
-$ nix-env -i -f https://github.com/vlaci/openconnect-sso/archive/master.tar.gz
-unpacking 'https://github.com/vlaci/openconnect-sso/archive/master.tar.gz'...
+$ nix-env -i -f https://github.com/mschabhuettl/openconnect-sso-plus/archive/main.tar.gz
+unpacking 'https://github.com/mschabhuettl/openconnect-sso-plus/archive/main.tar.gz'...
 [...]
 installing 'openconnect-sso-0.4.0'
 these derivations will be built:
@@ -71,7 +72,7 @@ An overlay is also available to use in nix expressions:
 
 ``` nix
 let
-  openconnectOverlay = import "${builtins.fetchTarball https://github.com/vlaci/openconnect-sso/archive/master.tar.gz}/overlay.nix";
+  openconnectOverlay = import "${builtins.fetchTarball https://github.com/mschabhuettl/openconnect-sso-plus/archive/main.tar.gz}/overlay.nix";
   pkgs = import <nixpkgs> { overlays = [ openconnectOverlay ]; };
 in
   #  pkgs.openconnect-sso is available in this context
@@ -84,7 +85,7 @@ in
 
 {
   nixpkgs.overlays = [
-    (import "${builtins.fetchTarball https://github.com/vlaci/openconnect-sso/archive/master.tar.gz}/overlay.nix")
+    (import "${builtins.fetchTarball https://github.com/mschabhuettl/openconnect-sso-plus/archive/main.tar.gz}/overlay.nix")
   ];
 }
 ```
@@ -110,86 +111,3 @@ available).
 
 If you already have Cisco AnyConnect set-up, then `--server` argument is
 optional. Also, the last used `--server` address is saved between sessions so
-there is no need to always type in the same arguments:
-
-```shell
-$ openconnect-sso
-[info     ] Authenticating to VPN endpoint ...
-```
-
-Configuration is saved in `$XDG_CONFIG_HOME/openconnect-sso/config.toml`. On
-typical Linux installations it is located under
-`$HOME/.config/openconnect-sso/config.toml`
-
-For CISCO-VPN and TOTP the following seems to work by tuning the config.toml
-and removing the default "submit"-action to the following:
-
-```
-[[auto_fill_rules."https://*"]]
-selector = "input[data-report-event=Signin_Submit]"
-action = "click"
-
-[[auto_fill_rules."https://*"]]
-selector = "input[type=tel]"
-fill = "totp"
-```
-
-### Adding custom `openconnect` arguments
-
-Sometimes you need to add custom `openconnect` arguments. One situation can be if you get similar error messages:
-
-```shell
-Failed to read from SSL socket: The transmitted packet is too large (EMSGSIZE).
-Failed to recv DPD request (-5)
-```
-
-or:
-
-```shell
-Detected MTU of 1370 bytes (was 1406)
-```
-
-Generally, you can add `openconnect` arguments after the `--` separator. This is called _"positional arguments"_. The
-solution of the previous errors is setting `--base-mtu` e.g.:
-
-```shell
-openconnect-sso --server vpn.server.com/group --user user@domain.com -- --base-mtu=1370
-#                                                          separator ^^|^^^^^^^^^^^^^^^ openconnect args
-```
-
-## Development
-
-`openconnect-sso` is developed using [Nix](https://nixos.org/nix/). Refer to the
-[Quick Start section of the Nix
-manual](https://nixos.org/nix/manual/#chap-quick-start) to see how to get it
-installed on your machine.
-
-To get dropped into a development environment, just type `nix-shell`:
-
-```shell
-$ nix-shell
-Sourcing python-catch-conflicts-hook.sh
-Sourcing python-remove-bin-bytecode-hook.sh
-Sourcing pip-build-hook
-Using pipBuildPhase
-Sourcing pip-install-hook
-Using pipInstallPhase
-Sourcing python-imports-check-hook.sh
-Using pythonImportsCheckPhase
-Run 'make help' for available commands
-
-[nix-shell]$
-```
-
-To try an installed version of the package, issue `nix-build`:
-
-```shell
-$ nix build
-[1 built, 0.0 MiB DL]
-
-$ result/bin/openconnect-sso --help
-```
-
-Alternatively you may just [get Poetry](https://python-poetry.org/docs/) and
-start developing by using the included `Makefile`. Type `make help` to see the
-possible make targets.
