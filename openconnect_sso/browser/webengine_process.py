@@ -6,6 +6,7 @@ import sys
 from urllib.parse import urlparse
 
 import attr
+
 # Prefer importlib.resources, fallback to backport for Python <3.8
 try:
     import importlib.resources as importlib_resources
@@ -91,6 +92,7 @@ class Process(multiprocessing.Process):
         app = QApplication(argv)
 
         language = QLocale.system().name().split("_")[0]
+        profile = QWebEngineProfile.defaultProfile()
         profile.setHttpAcceptLanguage(language)
 
         if self.proxy:
@@ -212,20 +214,26 @@ autoFill();
         logger.debug("Page loaded", url=url)
 
         self._on_update(Url(url))
+
     def _on_select_client_certificate(self, selection):
         logger.info("Select first client Certificate")
         url = self.page().url().toString()
         certificate = selection.certificates()[0]
-        text = ('<b>Subject:</b> {subj}<br/>'
-                '<b>Issuer:</b> {issuer}<br/>'
-                '<b>Serial:</b> {serial}'.format(
-                    subj=html_utils.escape(certificate.subjectDisplayName()),
-                    issuer=html_utils.escape(certificate.issuerDisplayName()),
-                    serial=bytes(certificate.serialNumber()).decode('ascii')))
+        text = (
+            "<b>Subject:</b> {subj}<br/>"
+            "<b>Issuer:</b> {issuer}<br/>"
+            "<b>Serial:</b> {serial}".format(
+                subj=html_utils.escape(certificate.subjectDisplayName()),
+                issuer=html_utils.escape(certificate.issuerDisplayName()),
+                serial=bytes(certificate.serialNumber()).decode("ascii"),
+            )
+        )
         if len(selection.certificates()) > 1:
-            text += ('<br/><br/><b>Note:</b> Multiple matching certificates '
-                     'were found, but certificate selection is not '
-                     'implemented yet!')
+            text += (
+                "<br/><br/><b>Note:</b> Multiple matching certificates "
+                "were found, but certificate selection is not "
+                "implemented yet!"
+            )
         logger.info(text)
         selection.select(certificate)
         self.load(QUrl(url))
@@ -234,18 +242,24 @@ autoFill();
         logger.debug("WebAuth UX requested")
         self.webAuth = WebAuthUXDialog(self, request)
         self.webAuth.setModal(False)
-        self.webAuth.setWindowFlags(self.webAuth.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+        self.webAuth.setWindowFlags(
+            self.webAuth.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint
+        )
         request.stateChanged.connect(self._on_webauth_statechanged)
         self.webAuth.show()
 
-    @pyqtSlot('QWebEngineWebAuthUxRequest::WebAuthUxState')
+    @pyqtSlot("QWebEngineWebAuthUxRequest::WebAuthUxState")
     def _on_webauth_statechanged(self, state):
-        if state == QWebEngineWebAuthUxRequest.WebAuthUxState.Completed or state == QWebEngineWebAuthUxRequest.WebAuthUxState.Cancelled:
+        if (
+            state == QWebEngineWebAuthUxRequest.WebAuthUxState.Completed
+            or state == QWebEngineWebAuthUxRequest.WebAuthUxState.Cancelled
+        ):
             if self.webAuth is not None:
                 self.webAuth.close()
                 self.webAuth = None
         else:
             self.webAuth.updateDisplay()
+
 
 class WebPopupWindow(QWidget):
     def __init__(self, profile):
@@ -294,7 +308,7 @@ def get_selectors(rules, credentials):
             value = json.dumps(getattr(credentials, rule.fill, None))
             if value:
                 statements.append(
-                    #f"""var elem = document.querySelector({selector}); if (elem) {{ elem.dispatchEvent(new Event("focus")); elem.value = {value}; elem.dispatchEvent(new Event("blur")); }}"""
+                    # f"""var elem = document.querySelector({selector}); if (elem) {{ elem.dispatchEvent(new Event("focus")); elem.value = {value}; elem.dispatchEvent(new Event("blur")); }}"""
                     f"""var elem = document.querySelector({selector}); if (elem) {{ elem.dispatchEvent(new Event("focus")); elem.value = {value}; elem.dispatchEvent(new Event('input', {{bubbles: true}})); /*elem.dispatchEvent(new Event("blur"));*/ }}"""
                 )
             else:
@@ -306,7 +320,7 @@ def get_selectors(rules, credentials):
 
         elif rule.action == "click":
             statements.append(
-                #f"""var elem = document.querySelector({selector}); if (elem) {{ elem.dispatchEvent(new Event("focus")); elem.click(); }}"""
+                # f"""var elem = document.querySelector({selector}); if (elem) {{ elem.dispatchEvent(new Event("focus")); elem.click(); }}"""
                 f"""var elem = document.querySelector({selector}); if (elem) {{ var click_delay=728; elem.dispatchEvent(new Event("focus")); setTimeout(function() {{ document.querySelector({selector}).click(); }}, click_delay); }}"""
             )
     return "\n".join(statements)

@@ -111,7 +111,7 @@ async def _run(args, cfg):
     if args.reset_credentials:
         del Credentials(args.user).password
         del Credentials(args.user).totp
-    
+
     credentials = None
     if cfg.credentials:
         credentials = cfg.credentials
@@ -194,7 +194,9 @@ def authenticate_to(host, proxy, credentials, display_mode, version):
 
 
 def run_openconnect(auth_info, host, proxy, version, args):
-    as_root = next(([prog] for prog in ("doas", "sudo", "run0") if shutil.which(prog)), [])
+    as_root = next(
+        ([prog] for prog in ("doas", "sudo", "run0") if shutil.which(prog)), []
+    )
     try:
         if not as_root:
             if os.name == "nt":

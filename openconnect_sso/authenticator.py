@@ -87,21 +87,23 @@ class Authenticator:
 
         return response
 
-def _detect_authentication_target_url(self):
-    # Follow possible redirects in a GET request
-    # Authentication will occur using a POST request on the final URL
-    try:
-        response = get_legacy_session().get(self.host.vpn_url)
-        response.raise_for_status()
-        self.host.address = response.url
-    except Exception:
-        logger.warn("Failed to check for redirect")
-        self.host.address = self.host.vpn_url
+    def _detect_authentication_target_url(self):
+        # Follow possible redirects in a GET request
+        # Authentication will occur using a POST request on the final URL
+        try:
+            response = get_legacy_session().get(self.host.vpn_url)
+            response.raise_for_status()
+            self.host.address = response.url
+        except Exception:
+            logger.warn("Failed to check for redirect")
+            self.host.address = self.host.vpn_url
 
-    logger.debug("Auth target url", url=self.host.vpn_url)
+        logger.debug("Auth target url", url=self.host.vpn_url)
 
-    def _start_authentication(self, no_cert=False):
-        request = _create_auth_init_request(self.host, self.host.vpn_url, self.version, no_cert)
+    def _start_authentication(self, no_cert: bool = False):
+        request = _create_auth_init_request(
+            self.host, self.host.vpn_url, self.version, no_cert
+        )
         logger.debug("Sending auth init request", content=request)
         response = self.session.post(self.host.vpn_url, request)
         logger.debug("Auth init response received", content=response.content)
@@ -212,7 +214,7 @@ def parse_response(resp):
 
 
 def parse_auth_request_response(xml):
-    if hasattr(xml, 'client-cert-request'):
+    if hasattr(xml, "client-cert-request"):
         logger.info("client-cert-request received")
         return CertRequestResponse()
 
@@ -265,7 +267,7 @@ def parse_auth_complete_response(xml):
         auth_message = xml.auth.banner.text
     else:
         auth_message = getattr(xml.auth, "message", "")
-        
+
     resp = AuthCompleteResponse(
         auth_id=xml.auth.get("id"),
         auth_message=auth_message,
