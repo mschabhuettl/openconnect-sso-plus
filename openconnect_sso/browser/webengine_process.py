@@ -23,11 +23,13 @@ from PyQt6.QtWebEngineCore import (
     QWebEngineProfile,
     QWebEngineScript,
     QWebEngineClientCertificateSelection,
+    QWebEngineWebAuthUxRequest,
 )
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWidgets import QApplication, QSizePolicy, QVBoxLayout, QWidget
 
 from openconnect_sso import config
+from .webauthdialog import WebAuthUXDialog
 
 app = None
 logger = structlog.get_logger("webengine")
@@ -160,6 +162,7 @@ class WebBrowser(QWebEngineView):
         cookie_store.cookieAdded.connect(self._on_cookie_added)
         self.page().loadFinished.connect(self._on_load_finished)
         self.page().selectClientCertificate.connect(self._on_select_client_certificate)
+        self.page().webAuthUxRequested.connect(self._on_webauth_requested)
 
     def createWindow(self, type):
         if type == QWebEnginePage.WebDialog:
@@ -229,6 +232,22 @@ autoFill();
         selection.select(certificate)
         self.load(QUrl(url))
 
+    def _on_webauth_requested(self, request):
+        logger.debug("WebAuth UX requested")
+        self.webAuth = WebAuthUXDialog(self, request)
+        self.webAuth.setModal(False)
+        self.webAuth.setWindowFlags(self.webAuth.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+        request.stateChanged.connect(self._on_webauth_statechanged)
+        self.webAuth.show()
+
+    @pyqtSlot('QWebEngineWebAuthUxRequest::WebAuthUxState')
+    def _on_webauth_statechanged(self, state):
+        if state == QWebEngineWebAuthUxRequest.WebAuthUxState.Completed or state == QWebEngineWebAuthUxRequest.WebAuthUxState.Cancelled:
+            if self.webAuth is not None:
+                self.webAuth.close()
+                self.webAuth = None
+        else:
+            self.webAuth.updateDisplay()
 
 class WebPopupWindow(QWidget):
     def __init__(self, profile):
