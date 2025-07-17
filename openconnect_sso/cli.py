@@ -120,7 +120,13 @@ def create_argparser():
         dest="reset_credentials",
         help="Delete saved credentials from keyring",
         action="store_true",
-        default=False
+        default=False,
+    )
+    credentials_group.add_argument(
+        "--passwd", help="Password to login with", default=None
+    )
+    credentials_group.add_argument(
+        "--totp", help="TOTP secret to use to login", default=None
     )
     return parser
 
