@@ -5,6 +5,9 @@ import requests
 import structlog
 import urllib3
 from lxml import etree, objectify
+import ssl
+from requests import adapters
+import urllib3
 
 from openconnect_sso.saml_authenticator import authenticate_in_browser
 
@@ -82,13 +85,18 @@ class Authenticator:
 
         return response
 
-    def _detect_authentication_target_url(self):
-        # Follow possible redirects in a GET request
-        # Authentication will occcur using a POST request on the final URL
+def _detect_authentication_target_url(self):
+    # Follow possible redirects in a GET request
+    # Authentication will occur using a POST request on the final URL
+    try:
         response = get_legacy_session().get(self.host.vpn_url)
         response.raise_for_status()
         self.host.address = response.url
-        logger.debug("Auth target url", url=self.host.vpn_url)
+    except Exception:
+        logger.warn("Failed to check for redirect")
+        self.host.address = self.host.vpn_url
+
+    logger.debug("Auth target url", url=self.host.vpn_url)
 
     def _start_authentication(self):
         request = _create_auth_init_request(self.host, self.host.vpn_url, self.version)
@@ -120,8 +128,33 @@ class AuthResponseError(AuthenticationError):
     pass
 
 
+class AllowLegacyRenegotionAdapter(adapters.HTTPAdapter):
+    """“Transport adapter” that allows us to use legacy renogation.
+
+    Such renegotiation is disabled by default in OpenSSL 3.0. This
+    suppresses errors such as:
+
+      SSLError(1, '[SSL: UNSAFE_LEGACY_RENEGOTIATION_DISABLED] unsafe
+      legacy renegotiation disabled (_ssl.c:992)')
+
+    """
+
+    def init_poolmanager(self, connections, maxsize, block=False):
+        ctx = urllib3.util.ssl_.create_urllib3_context()
+        ctx.load_default_certs()
+        ctx.options |= 0x4  # ssl.OP_LEGACY_SERVER_CONNECT
+
+        self.poolmanager = urllib3.PoolManager(
+            ssl_context=ctx,
+            num_pools=connections,
+            maxsize=maxsize,
+            block=block,
+        )
+
+
 def create_http_session(proxy, version):
-    session = get_legacy_session()
+    session = requests.Session()
+    session.mount("https://", AllowLegacyRenegotionAdapter())
     session.proxies = {"http": proxy, "https": proxy}
     session.headers.update(
         {
@@ -132,7 +165,6 @@ def create_http_session(proxy, version):
             "X-Aggregate-Auth": "1",
             "X-Support-HTTP-Auth": "true",
             "Content-Type": "application/x-www-form-urlencoded",
-            # I know, it is invalid but that’s what Anyconnect sends
         }
     )
     return session
