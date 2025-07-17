@@ -13,11 +13,12 @@ depends=('python' 'python-pyqt6' 'python-pyqt6-webengine' 'python-attrs' 'python
 makedepends=('python-setuptools')
 checkdepends=('python-pytest' 'python-pytest-asyncio')
 optdepends=()
-source=("https://github.com/username/repo-name/archive/refs/heads/main.tar.gz")
+source=("https://github.com/mschabhuettl/openconnect-sso-plus/archive/refs/heads/main.tar.gz")
 sha256sums=('SKIP')
 
 prepare() {
   cd "$pkgname-$pkgver"
+  # Hier kannst du ggf. Patches anwenden
 }
 
 build() {
