@@ -10,7 +10,7 @@ import pkg_resources
 import structlog
 import html as html_utils
 
-from PyQt6.QtCore import QUrl, QTimer, pyqtSlot, Qt
+from PyQt6.QtCore import QUrl, QTimer, pyqtSlot, Qt, QLocale
 from PyQt6.QtNetwork import QNetworkCookie, QNetworkProxy
 from PyQt6.QtWebEngineCore import QWebEngineScript, QWebEngineProfile, QWebEnginePage, QWebEngineClientCertificateSelection
 from PyQt6.QtWebEngineWidgets import QWebEngineView
@@ -79,6 +79,9 @@ class Process(multiprocessing.Process):
         if self.display_mode == config.DisplayMode.HIDDEN:
             argv += ["-platform", "minimal"]
         app = QApplication(argv)
+
+        language = QLocale.system().name().split("_")[0]
+        profile.setHttpAcceptLanguage(language)
 
         if self.proxy:
             parsed = urlparse(self.proxy)
