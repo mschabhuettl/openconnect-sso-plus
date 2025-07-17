@@ -17,15 +17,19 @@ jobs:
       image: archlinux:latest
     steps:
       - uses: actions/checkout@v3
+
       - name: Install dependencies
         run: |
-          pacman -Syu --noconfirm base-devel git
+          pacman -Syu --noconfirm base-devel git python python-pyqt6 python-pyqt6-webengine python-attrs python-colorama python-keyring python-lxml python-prompt_toolkit python-pyxdg python-requests python-structlog python-toml python-pysocks python-jaraco-classes openconnect python-setuptools python-pytest python-pytest-asyncio
+
       - name: Create build user
         run: |
           useradd -m builder
           chown -R builder .
+
       - name: Build package
-        run: su builder -c 'makepkg --syncdeps --noconfirm --skipinteg'
+        run: su builder -c 'makepkg --noconfirm --skipinteg'
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
